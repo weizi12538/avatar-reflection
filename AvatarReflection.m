@@ -18,6 +18,8 @@ extern NSString *const ARPrefsDidChangeNotification;
 + (void)setHeightRatio:(CGFloat)v;
 + (CGFloat)startAlpha;           // 倒影起始透明度, 0.05 ~ 1.0, 默认 0.4
 + (void)setStartAlpha:(CGFloat)v;
++ (CGFloat)sizeScale;           // 倒影整体大小校正, 0.6 ~ 1.2, 默认 1.0
++ (void)setSizeScale:(CGFloat)v;
 + (CGFloat)gap;                  // 头像与倒影间距(pt), 0 ~ 12, 默认 0
 + (void)setGap:(CGFloat)v;
 + (NSString *)customClassName;   // 高级: 手动指定头像类名(需重启微信)
@@ -50,6 +52,7 @@ static NSString *const kScope   = @"AvatarReflection.scope";
 static NSString *const kRatio   = @"AvatarReflection.ratio";
 static NSString *const kAlpha   = @"AvatarReflection.alpha";
 static NSString *const kGap     = @"AvatarReflection.gap";
+static NSString *const kScale   = @"AvatarReflection.scale";
 static NSString *const kClass   = @"AvatarReflection.className";
 
 static NSUserDefaults *D(void) { return [NSUserDefaults standardUserDefaults]; }
@@ -81,6 +84,9 @@ static void Changed(void) {
 + (CGFloat)startAlpha { return F(kAlpha, 0.4, 0.05, 1.0); }
 + (void)setStartAlpha:(CGFloat)v { [D() setDouble:v forKey:kAlpha]; Changed(); }
 
++ (CGFloat)sizeScale { return F(kScale, 1.0, 0.6, 1.2); }
++ (void)setSizeScale:(CGFloat)v { [D() setDouble:v forKey:kScale]; Changed(); }
+
 + (CGFloat)gap { return F(kGap, 0, 0, 12); }
 + (void)setGap:(CGFloat)v { [D() setDouble:v forKey:kGap]; Changed(); }
 
@@ -91,7 +97,7 @@ static void Changed(void) {
 }
 
 + (void)resetAll {
-    for (NSString *k in @[kEnabled, kScope, kRatio, kAlpha, kGap]) [D() removeObjectForKey:k];
+    for (NSString *k in @[kEnabled, kScope, kRatio, kAlpha, kGap, kScale]) [D() removeObjectForKey:k];
     Changed();
 }
 @end
@@ -198,8 +204,8 @@ static void Changed(void) {
     NSArray<NSString *> *_footers;
     UISwitch *_sw;
     UISegmentedControl *_seg;
-    UISlider *_sH, *_sA, *_sG;
-    UILabel *_lH, *_lA, *_lG;
+    UISlider *_sH, *_sA, *_sG, *_sS;
+    UILabel *_lH, *_lA, *_lG, *_lS;
     UITextField *_tf;
     UITableViewCell *_resetCell;
     UIView *_header;
@@ -274,10 +280,12 @@ static void Changed(void) {
     _sH = [self slider:0.2 max:1.0 value:[ARPrefs heightRatio]];
     _sA = [self slider:0.05 max:1.0 value:[ARPrefs startAlpha]];
     _sG = [self slider:0 max:12 value:[ARPrefs gap]];
-    _lH = [UILabel new]; _lA = [UILabel new]; _lG = [UILabel new];
+    _sS = [self slider:0.6 max:1.2 value:[ARPrefs sizeScale]];
+    _lH = [UILabel new]; _lA = [UILabel new]; _lG = [UILabel new]; _lS = [UILabel new];
     UITableViewCell *c2 = [self sliderCell:@"倒影高度" slider:_sH label:_lH];
     UITableViewCell *c3 = [self sliderCell:@"起始透明度" slider:_sA label:_lA];
     UITableViewCell *c4 = [self sliderCell:@"与头像间距" slider:_sG label:_lG];
+    UITableViewCell *c6 = [self sliderCell:@"倒影大小" slider:_sS label:_lS];
 
     // 高级: 类名
     _tf = [[UITextField alloc] initWithFrame:CGRectMake(0, 0, 210, 30)];
@@ -299,10 +307,10 @@ static void Changed(void) {
     _resetCell.textLabel.textColor = UIColor.systemRedColor;
     _resetCell.textLabel.textAlignment = NSTextAlignmentCenter;
 
-    _cells = @[@[c0, c1], @[c2, c3, c4], @[c5], @[_resetCell]];
+    _cells = @[@[c0, c1], @[c6, c2, c3, c4], @[c5], @[_resetCell]];
     _headers = @[@"", @"效果", @"高级", @""];
     _footers = @[@"修改后立即生效。\"仅聊天页\"只给聊天消息里的头像加倒影。",
-                 @"倒影高度默认 85%，起始透明度默认 40%。",
+                 @"倒影大小：倒影比头像大或小时用它校正，默认 100%。倒影高度默认 85%，起始透明度默认 40%。",
                  @"只有默认类名无效(开了没效果)时才需要改，修改后请完全退出并重开微信。",
                  @""];
 
@@ -351,10 +359,11 @@ static void Changed(void) {
 - (void)updatePreview {
     CGFloat ratio = [ARPrefs heightRatio], gap = [ARPrefs gap];
     BOOL on = [ARPrefs enabled];
+    CGFloat sc = [ARPrefs sizeScale], w = 72 * sc;
     CGRect af = _pAvatar.frame;
-    _pRefl.frame = CGRectMake(af.origin.x, CGRectGetMaxY(af) + gap, 72, floor(72 * ratio));
+    _pRefl.frame = CGRectMake(CGRectGetMidX(af) - w / 2, CGRectGetMaxY(af) + gap, w, floor(w * ratio));
     [_pRefl setRatio:ratio startAlpha:[ARPrefs startAlpha]];
-    [_pRefl setSourceImage:_pImg size:CGSizeMake(72, 72) corner:8];
+    [_pRefl setSourceImage:_pImg size:CGSizeMake(w, w) corner:8 * sc];
     _pRefl.hidden = !on;
 }
 
@@ -362,6 +371,7 @@ static void Changed(void) {
     _lH.text = [NSString stringWithFormat:@"%d%%", (int)lround(_sH.value * 100)];
     _lA.text = [NSString stringWithFormat:@"%d%%", (int)lround(_sA.value * 100)];
     _lG.text = [NSString stringWithFormat:@"%.0f pt", _sG.value];
+    _lS.text = [NSString stringWithFormat:@"%d%%", (int)lround(_sS.value * 100)];
 }
 
 #pragma mark - actions
@@ -373,6 +383,7 @@ static void Changed(void) {
     if (s == _sH) [ARPrefs setHeightRatio:s.value];
     else if (s == _sA) [ARPrefs setStartAlpha:s.value];
     else if (s == _sG) [ARPrefs setGap:roundf(s.value)];
+    else if (s == _sS) [ARPrefs setSizeScale:s.value];
     [self refreshLabels];
     [self updatePreview];
 }
@@ -389,6 +400,7 @@ static void Changed(void) {
     _sH.value = [ARPrefs heightRatio];
     _sA.value = [ARPrefs startAlpha];
     _sG.value = [ARPrefs gap];
+    _sS.value = [ARPrefs sizeScale];
     [self refreshLabels];
     [self updatePreview];
 }
@@ -497,18 +509,25 @@ static void ARSync(UIView *avatar) {
     }
     if (rv.superview != sup) [sup insertSubview:rv belowSubview:avatar];
 
-    CGRect f = avatar.frame;
-    CGFloat ratio = [ARPrefs heightRatio], gap = [ARPrefs gap];
-    rv.frame = CGRectMake(f.origin.x, CGRectGetMaxY(f) + gap, f.size.width, floor(f.size.height * ratio));
+    // 以"真正显示图片的那个视图"为准(微信头像容器通常比可见图片大一圈)
+    UIImageView *iv = ARFindImageView(avatar, avatar.bounds.size.width * 0.5, 0);
+    CGRect base = avatar.frame;
+    if (iv) {
+        CGRect r = [sup convertRect:iv.bounds fromView:iv];
+        if (r.size.width >= 10 && r.size.height >= 10) base = r;
+    }
+    CGFloat ratio = [ARPrefs heightRatio], gap = [ARPrefs gap], sc = [ARPrefs sizeScale];
+    CGSize sz = CGSizeMake(base.size.width * sc, base.size.height * sc);
+    rv.frame = CGRectMake(CGRectGetMidX(base) - sz.width / 2, CGRectGetMaxY(base) + gap,
+                          sz.width, floor(sz.height * ratio));
     rv.alpha = avatar.alpha;
     rv.hidden = NO;
     [rv setRatio:ratio startAlpha:[ARPrefs startAlpha]];
 
-    UIImageView *iv = ARFindImageView(avatar, f.size.width * 0.6, 0);
     UIImage *img = iv.image;
-    CGFloat corner = MAX(avatar.layer.cornerRadius, iv.layer.cornerRadius);
+    CGFloat corner = (iv && iv.layer.cornerRadius > 0) ? iv.layer.cornerRadius : avatar.layer.cornerRadius;
     if (!img && !rv.hasContent) img = ARSnapshot(avatar);   // 兜底: 头像不是 UIImageView 时截图
-    if (img) [rv setSourceImage:img size:f.size corner:corner];
+    if (img) [rv setSourceImage:img size:sz corner:corner * sc];
 }
 
 #pragma mark - avatar hooks
