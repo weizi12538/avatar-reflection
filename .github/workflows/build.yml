@@ -1,0 +1,54 @@
+name: build
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: brew install dpkg ldid
+      - name: Build and package
+        run: |
+          set -e
+          NAME=AvatarReflection
+          VER=1.0.0
+          mkdir -p out
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=13.0 -isysroot "$SDK" \
+            -dynamiclib -fobjc-arc -fmodules -O2 -Wall -Wno-unused-function \
+            -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics \
+            -install_name "@rpath/$NAME.dylib" \
+            $NAME.m -o out/$NAME.dylib
+          ldid -S out/$NAME.dylib || true
+          export COPYFILE_DISABLE=1
+          make_deb() {
+            ARCH=$1; PREFIX=$2
+            ROOT=$(mktemp -d)
+            DIR="$ROOT$PREFIX/Library/MobileSubstrate/DynamicLibraries"
+            mkdir -p "$DIR" "$ROOT/DEBIAN"
+            cp out/$NAME.dylib "$DIR/$NAME.dylib"
+            cat > "$DIR/$NAME.plist" <<'PLIST'
+          { Filter = { Bundles = ( "com.tencent.xin" ); }; }
+          PLIST
+            cat > "$ROOT/DEBIAN/control" <<CTRL
+          Package: com.avatarreflection.wechat
+          Name: AvatarReflection
+          Version: $VER
+          Architecture: $ARCH
+          Description: WeChat avatar mirror reflection with settings panel
+          Maintainer: AvatarReflection
+          Author: AvatarReflection
+          Section: Tweaks
+          CTRL
+            dpkg-deb --root-owner-group -Zxz -z9 -b "$ROOT" "out/${NAME}_${VER}_${ARCH}.deb"
+            rm -rf "$ROOT"
+          }
+          make_deb iphoneos-arm64 /var/jb
+          make_deb iphoneos-arm ""
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AvatarReflection
+          path: out/*
